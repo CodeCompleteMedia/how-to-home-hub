@@ -13,14 +13,21 @@ const CATEGORY_ICONS: Record<string, string> = {
 };
 
 export default async function HomePage() {
-  const categories = await prisma.applianceCategory.findMany({
-    orderBy: { name: "asc" },
-  });
-  const guides = await prisma.guide.findMany({
-    where: { published: true },
-    orderBy: { viewCount: "desc" },
-    take: 4,
-  });
+  let categories: Awaited<ReturnType<typeof prisma.applianceCategory.findMany>> = [];
+  let guides: Awaited<ReturnType<typeof prisma.guide.findMany>> = [];
+
+  try {
+    [categories, guides] = await Promise.all([
+      prisma.applianceCategory.findMany({ orderBy: { name: "asc" } }),
+      prisma.guide.findMany({
+        where: { published: true },
+        orderBy: { viewCount: "desc" },
+        take: 4,
+      }),
+    ]);
+  } catch {
+    // Database tables may not exist yet (migration pending)
+  }
 
   return (
     <div>
