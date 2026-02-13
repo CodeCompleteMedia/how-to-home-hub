@@ -1,20 +1,13 @@
 // Seed script for How to Home Hub
-// Uses better-sqlite3 directly since Prisma v7 generated TS client is hard to use outside Next.js
+// Uses Prisma client for PostgreSQL compatibility
 
-import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { PrismaClient } from "../src/generated/prisma/client.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const db = new Database(resolve(__dirname, "..", "dev.db"));
+const prisma = new PrismaClient();
 
-// Enable WAL mode for better performance
-db.pragma("journal_mode = WAL");
-
-function seed() {
+async function seed() {
   // ─── Categories ───
-  const categories = [
+  const categoriesData = [
     { name: "HVAC", icon: "thermometer", description: "Heating, ventilation, and air conditioning systems including furnaces, AC units, and heat pumps." },
     { name: "Plumbing", icon: "droplets", description: "Water heaters, pipes, faucets, toilets, sump pumps, and water supply systems." },
     { name: "Kitchen", icon: "chef-hat", description: "Refrigerators, ovens, dishwashers, microwaves, and other kitchen appliances." },
@@ -24,22 +17,17 @@ function seed() {
     { name: "Water Treatment", icon: "glass-water", description: "Water softeners, filtration systems, and water purification." },
   ];
 
-  const upsertCategory = db.prepare(`
-    INSERT INTO ApplianceCategory (id, name, icon, description)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(name) DO UPDATE SET icon=excluded.icon, description=excluded.description
-  `);
-
   const catIds = {};
-  for (const cat of categories) {
-    const id = randomUUID();
-    upsertCategory.run(id, cat.name, cat.icon, cat.description);
-    const row = db.prepare("SELECT id FROM ApplianceCategory WHERE name = ?").get(cat.name);
-    catIds[cat.name] = row.id;
+  for (const cat of categoriesData) {
+    const result = await prisma.applianceCategory.upsert({
+      where: { name: cat.name },
+      update: { icon: cat.icon, description: cat.description },
+      create: cat,
+    });
+    catIds[cat.name] = result.id;
   }
 
   // ─── Guides ───
-  const now = new Date().toISOString();
   const guides = [
     {
       title: "Complete Guide to HVAC Maintenance",
@@ -88,39 +76,42 @@ function seed() {
     },
   ];
 
-  const upsertGuide = db.prepare(`
-    INSERT INTO Guide (id, categoryId, title, slug, summary, content, difficulty, tags, viewCount, published, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)
-    ON CONFLICT(slug) DO UPDATE SET title=excluded.title, summary=excluded.summary, content=excluded.content,
-      difficulty=excluded.difficulty, tags=excluded.tags, categoryId=excluded.categoryId, updatedAt=excluded.updatedAt
-  `);
-
   for (const g of guides) {
-    upsertGuide.run(randomUUID(), g.categoryId, g.title, g.slug, g.summary, g.content, g.difficulty, g.tags, now, now);
+    await prisma.guide.upsert({
+      where: { slug: g.slug },
+      update: {
+        title: g.title,
+        summary: g.summary,
+        content: g.content,
+        difficulty: g.difficulty,
+        tags: g.tags,
+        categoryId: g.categoryId,
+      },
+      create: g,
+    });
   }
 
   // ─── Service Providers ───
-  db.prepare("DELETE FROM ServiceProvider").run();
-
-  const insertProvider = db.prepare(`
-    INSERT INTO ServiceProvider (id, categoryId, name, trade, phone, email, website, address, city, state, zipCode, rating, reviewCount, description, verified, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  await prisma.serviceProvider.deleteMany();
 
   const providers = [
-    { name: "Quick Fix Plumbing", trade: "plumber", phone: "(555) 123-4567", email: "info@quickfixplumbing.example.com", city: "Austin", state: "TX", zipCode: "78701", rating: 4.8, reviewCount: 127, description: "Licensed plumbing services. Emergency calls welcome. Specializing in water heaters, leak detection, and drain cleaning.", verified: 1, categoryId: catIds["Plumbing"] },
-    { name: "Comfort Zone HVAC", trade: "hvac_tech", phone: "(555) 234-5678", email: "service@comfortzonehvac.example.com", city: "Austin", state: "TX", zipCode: "78702", rating: 4.6, reviewCount: 89, description: "Full-service HVAC company. Installation, repair, and maintenance of all heating and cooling systems.", verified: 1, categoryId: catIds["HVAC"] },
-    { name: "BrightSpark Electrical", trade: "electrician", phone: "(555) 345-6789", email: "hello@brightspark.example.com", city: "Austin", state: "TX", zipCode: "78703", rating: 4.9, reviewCount: 203, description: "Master electricians. Panel upgrades, rewiring, lighting, and smart home installation.", verified: 1, categoryId: catIds["Electrical"] },
-    { name: "All-Pro Handyman Services", trade: "general_contractor", phone: "(555) 456-7890", email: null, city: "Austin", state: "TX", zipCode: "78704", rating: 4.4, reviewCount: 56, description: "General home repairs, painting, drywall, carpentry, and minor plumbing and electrical work.", verified: 0, categoryId: null },
-    { name: "Premier Roofing & Gutters", trade: "roofer", phone: "(555) 567-8901", email: "estimates@premierroofing.example.com", city: "Austin", state: "TX", zipCode: "78705", rating: 4.7, reviewCount: 145, description: "Roof inspection, repair, and replacement. Gutter installation and cleaning. Free estimates.", verified: 1, categoryId: catIds["Exterior"] },
+    { name: "Quick Fix Plumbing", trade: "plumber", phone: "(555) 123-4567", email: "info@quickfixplumbing.example.com", city: "Austin", state: "TX", zipCode: "78701", rating: 4.8, reviewCount: 127, description: "Licensed plumbing services. Emergency calls welcome. Specializing in water heaters, leak detection, and drain cleaning.", verified: true, categoryId: catIds["Plumbing"] },
+    { name: "Comfort Zone HVAC", trade: "hvac_tech", phone: "(555) 234-5678", email: "service@comfortzonehvac.example.com", city: "Austin", state: "TX", zipCode: "78702", rating: 4.6, reviewCount: 89, description: "Full-service HVAC company. Installation, repair, and maintenance of all heating and cooling systems.", verified: true, categoryId: catIds["HVAC"] },
+    { name: "BrightSpark Electrical", trade: "electrician", phone: "(555) 345-6789", email: "hello@brightspark.example.com", city: "Austin", state: "TX", zipCode: "78703", rating: 4.9, reviewCount: 203, description: "Master electricians. Panel upgrades, rewiring, lighting, and smart home installation.", verified: true, categoryId: catIds["Electrical"] },
+    { name: "All-Pro Handyman Services", trade: "general_contractor", phone: "(555) 456-7890", city: "Austin", state: "TX", zipCode: "78704", rating: 4.4, reviewCount: 56, description: "General home repairs, painting, drywall, carpentry, and minor plumbing and electrical work.", verified: false },
+    { name: "Premier Roofing & Gutters", trade: "roofer", phone: "(555) 567-8901", email: "estimates@premierroofing.example.com", city: "Austin", state: "TX", zipCode: "78705", rating: 4.7, reviewCount: 145, description: "Roof inspection, repair, and replacement. Gutter installation and cleaning. Free estimates.", verified: true, categoryId: catIds["Exterior"] },
   ];
 
   for (const p of providers) {
-    insertProvider.run(randomUUID(), p.categoryId, p.name, p.trade, p.phone, p.email, null, null, p.city, p.state, p.zipCode, p.rating, p.reviewCount, p.description, p.verified, now, now);
+    await prisma.serviceProvider.create({ data: p });
   }
 
   console.log("Database seeded successfully!");
 }
 
-seed();
-db.close();
+seed()
+  .catch((e) => {
+    console.error("Seed error:", e);
+    process.exit(1);
+  })
+  .finally(() => prisma.$disconnect());
